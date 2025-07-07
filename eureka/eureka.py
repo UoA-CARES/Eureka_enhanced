@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 import shutil
 import time 
+import threading
 
 from utils.misc import * 
 from utils.file_utils import find_files_with_substring, load_tensorboard_logs
@@ -18,6 +19,18 @@ from utils.extract_task_code import *
 
 EUREKA_ROOT_DIR = os.getcwd()
 ISAAC_ROOT_DIR = f"{EUREKA_ROOT_DIR}/../isaacgymenvs/isaacgymenvs"
+
+# Define a semaphore to limit concurrent processes
+MAX_CONCURRENT_PROCESSES = 1
+process_semaphore = threading.Semaphore(MAX_CONCURRENT_PROCESSES)
+
+def run_limited_subprocess(command, output_file):
+    """Run subprocess with limited concurrency."""
+    with process_semaphore:
+        with open(output_file, 'w') as f:
+            process = subprocess.Popen(command, stdout=f, stderr=f)
+            process.wait()
+    return process
 
 @hydra.main(config_path="cfg", config_name="config", version_base="1.1")
 def main(cfg):
@@ -188,15 +201,13 @@ def main(cfg):
             
             # Execute the python file with flags
             rl_filepath = f"env_iter{iter}_response{response_id}.txt"
-            with open(rl_filepath, 'w') as f:
-                process = subprocess.Popen(['python', '-u', f'{ISAAC_ROOT_DIR}/train.py',  
-                                            'hydra/output=subprocess',
-                                            f'task={task}{suffix}', f'wandb_activate={cfg.use_wandb}',
-                                            f'wandb_entity={cfg.wandb_username}', f'wandb_project={cfg.wandb_project}',
-                                            f'headless={not cfg.capture_video}', f'capture_video={cfg.capture_video}', 'force_render=False',
-                                            f'max_iterations={cfg.max_iterations}'],
-                                            stdout=f, stderr=f)
-            block_until_training(rl_filepath, log_status=True, iter_num=iter, response_id=response_id)
+            command = ['python', '-u', f'{ISAAC_ROOT_DIR}/train.py',  
+                       'hydra/output=subprocess',
+                       f'task={task}{suffix}', f'wandb_activate={cfg.use_wandb}',
+                       f'wandb_entity={cfg.wandb_username}', f'wandb_project={cfg.wandb_project}',
+                       f'headless={not cfg.capture_video}', f'capture_video={cfg.capture_video}', 'force_render=False',
+                       f'max_iterations={cfg.max_iterations}']
+            process = run_limited_subprocess(command, rl_filepath)
             rl_runs.append(process)
         
         # Gather RL training results and construct reward reflection
@@ -354,16 +365,12 @@ def main(cfg):
         
         # Execute the python file with flags
         rl_filepath = f"reward_code_eval{i}.txt"
-        with open(rl_filepath, 'w') as f:
-            process = subprocess.Popen(['python', '-u', f'{ISAAC_ROOT_DIR}/train.py',  
-                                        'hydra/output=subprocess',
-                                        f'task={task}{suffix}', f'wandb_activate={cfg.use_wandb}',
-                                        f'wandb_entity={cfg.wandb_username}', f'wandb_project={cfg.wandb_project}',
-                                        f'headless={not cfg.capture_video}', f'capture_video={cfg.capture_video}', 'force_render=False', f'seed={i}',
-                                        ],
-                                        stdout=f, stderr=f)
-
-        block_until_training(rl_filepath)
+        command = ['python', '-u', f'{ISAAC_ROOT_DIR}/train.py',  
+                   'hydra/output=subprocess',
+                   f'task={task}{suffix}', f'wandb_activate={cfg.use_wandb}',
+                   f'wandb_entity={cfg.wandb_username}', f'wandb_project={cfg.wandb_project}',
+                   f'headless={not cfg.capture_video}', f'capture_video={cfg.capture_video}', 'force_render=False', f'seed={i}']
+        process = run_limited_subprocess(command, rl_filepath)
         eval_runs.append(process)
 
     reward_code_final_successes = []
