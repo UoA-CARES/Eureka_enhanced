@@ -764,30 +764,49 @@ import torch
 from torch import Tensor
 @torch.jit.script
 def compute_reward(object_rot: torch.Tensor, goal_rot: torch.Tensor, object_angvel: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-    # Compute the orientation difference
-    orientation_diff = 1.0 - torch.sum(object_rot * goal_rot, dim=-1).abs()
-
-    # Reward for minimizing the orientation difference
-    orientation_diff_reward = -orientation_diff
-
-    # Encourage spinning by rewarding angular velocity
-    angvel_magnitude = torch.norm(object_angvel, dim=-1)
-    spin_reward = torch.clamp(angvel_magnitude, max=1.0)
-
-    # Weighted sum of the components
-    total_reward = 0.7 * orientation_diff_reward + 0.3 * spin_reward
-
-    # Normalize and transform the reward to enhance learning
-    temperature_orientation = 0.2
-    temperature_spin = 0.1
-    orientation_diff_reward_transformed = torch.exp(orientation_diff_reward / temperature_orientation)
-    spin_reward_transformed = torch.exp(spin_reward / temperature_spin)
-
-    total_reward_transformed = 0.7 * orientation_diff_reward_transformed + 0.3 * spin_reward_transformed
-
+    # Temperature parameters for reward shaping
+    orientation_temp: float = 1.0
+    angular_velocity_temp: float = 0.5
+    stability_temp: float = 2.0
+    
+    # Compute orientation error using quaternion distance
+    # quat_mul(object_rot, quat_conjugate(goal_rot)) gives relative rotation
+    quat_diff = quat_mul(object_rot, quat_conjugate(goal_rot))
+    
+    # Convert quaternion difference to angle (2 * arccos(|w|) where w is the scalar part)
+    # Clamp to avoid numerical issues with arccos
+    angle_diff = 2.0 * torch.acos(torch.clamp(torch.abs(quat_diff[:, 3]), 0.0, 1.0))
+    
+    # Orientation reward - higher when closer to target
+    orientation_reward = torch.exp(-orientation_temp * angle_diff)
+    
+    # Angular velocity magnitude - encourages spinning motion
+    angvel_magnitude = torch.norm(object_angvel, dim=1)
+    
+    # Velocity reward - encourages appropriate spinning speed
+    # Use a bell curve centered around optimal spinning speed
+    optimal_speed: float = 5.0  # rad/s - can be tuned
+    velocity_error = torch.abs(angvel_magnitude - optimal_speed)
+    angular_velocity_reward = torch.exp(-angular_velocity_temp * velocity_error)
+    
+    # Stability reward - penalize excessive spinning when close to target
+    # When orientation is good, we want to slow down
+    stability_factor = torch.exp(-stability_temp * angle_diff)
+    excessive_spin_penalty = stability_factor * torch.exp(-0.1 * (angvel_magnitude - 1.0).clamp(min=0.0))
+    
+    # Progress reward - bonus for reducing orientation error
+    progress_reward = orientation_reward * (1.0 + 0.5 * angular_velocity_reward)
+    
+    # Combine rewards
+    total_reward = 0.6 * orientation_reward + 0.3 * angular_velocity_reward + 0.1 * excessive_spin_penalty
+    
+    # Create reward components dictionary
     reward_components = {
-        "orientation_diff_reward": orientation_diff_reward,
-        "spin_reward": spin_reward,
+        'orientation_reward': orientation_reward,
+        'angular_velocity_reward': angular_velocity_reward,
+        'stability_reward': excessive_spin_penalty,
+        'angle_diff': angle_diff,
+        'angvel_magnitude': angvel_magnitude
     }
-
-    return total_reward_transformed, reward_components
+    
+    return total_reward, reward_components

@@ -109,19 +109,18 @@ def main(cfg):
                         model=model,
                         messages=messages,
                         temperature=cfg.temperature,
-                        n=chunk_size,
                         extra_headers={
                             "HTTP-Referer": "https://github.com/eureka", # You may want to customize this
                             "X-Title": "Eureka-RL",
                         },
                         extra_body={}
                     )
-                    total_samples += chunk_size
+                    total_samples += 1
                     break
                 except Exception as e:
-                    if attempt >= 10:
-                        chunk_size = max(int(chunk_size / 2), 1)
-                        print("Current Chunk Size", chunk_size)
+                    # if attempt >= 10:
+                        # chunk_size = max(int(chunk_size / 2), 1)
+                        # print("Current Chunk Size", chunk_size)
                     logging.info(f"Attempt {attempt+1} failed with error: {e}")
                     time.sleep(1)
             if response_cur is None:
@@ -326,7 +325,7 @@ def main(cfg):
 
         logging.info(f"Iteration {iter}: Max Success: {max_success}, Execute Rate: {execute_rate}, Max Success Reward Correlation: {max_success_reward_correlation}")
         logging.info(f"Iteration {iter}: Best Generation ID: {best_sample_idx}")
-        logging.info(f"Iteration {iter}: GPT Output Content:\n" +  responses[best_sample_idx]["message"]["content"] + "\n")
+        logging.info(f"Iteration {iter}: GPT Output Content:\n" +  responses[best_sample_idx].message.content + "\n")
         logging.info(f"Iteration {iter}: User Content:\n" + best_content + "\n")
             
         # Plot the success rate
@@ -348,11 +347,11 @@ def main(cfg):
         np.savez('summary.npz', max_successes=max_successes, execute_rates=execute_rates, best_code_paths=best_code_paths, max_successes_reward_correlation=max_successes_reward_correlation)
 
         if len(messages) == 2:
-            messages += [{"role": "assistant", "content": responses[best_sample_idx]["message"]["content"]}]
+            messages += [{"role": "assistant", "content": responses[best_sample_idx].message.content}]
             messages += [{"role": "user", "content": best_content}]
         else:
             assert len(messages) == 4
-            messages[-2] = {"role": "assistant", "content": responses[best_sample_idx]["message"]["content"]}
+            messages[-2] = {"role": "assistant", "content": responses[best_sample_idx].message.content}
             messages[-1] = {"role": "user", "content": best_content}
 
         # Save dictionary as JSON file
