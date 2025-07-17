@@ -13,8 +13,8 @@ from pathlib import Path
 # Constants
 REPO_LIST_PATH = '/home/lee/code/Eureka/dataprocess/repo_list.csv'
 OUTPUT_DIR = '/home/lee/code/Eureka/dataprocess/data'
-MAX_FILE_SIZE = 10 * 1024  # 10KB in bytes
-MAX_WORKERS = 4  # Number of concurrent downloads
+MAX_FILE_SIZE = 50 * 1024  # 50KB in bytes
+MAX_WORKERS =8  # Number of concurrent downloads
 
 def ensure_dir_exists(dir_path):
     """Ensure that the specified directory exists."""
