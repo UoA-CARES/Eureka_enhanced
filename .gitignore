@@ -56,3 +56,5 @@ outputs
 
 
 dataprocess/data
+*.tar.gz
+dataprocess/data.tar.gz
